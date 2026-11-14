@@ -52,6 +52,134 @@
 #include "device.h"
 #include "board.h"
 #include "c2000ware_libraries.h"
+
+#include <string.h>
+#include <ctype.h>
+
+#define RING_BUFFER_SIZE 16
+
+char        g_RingBuffer[RING_BUFFER_SIZE];
+uint8_t     g_RingBufferHead = 0;
+
+char        g_CmdBuffer[RING_BUFFER_SIZE];
+
+void LED_setState(uint8_t ledIdx, bool state)
+{
+    uint32_t gpio   = ledIdx == 0 ? myBoardLED0_GPIO : myBoardLED1_GPIO;
+    uint32_t value  = state ? 0 : 1;
+    
+    GPIO_writePin(gpio, value);
+}
+
+char get_character_at_position(int8_t position)
+{
+    int8_t  position_sign   = position >= 0 ? 1 : -1;
+    uint8_t position_mod    = position_sign > 0 ? position : -position;
+    uint8_t position_buffer = position_mod % RING_BUFFER_SIZE;
+
+    if (position_sign > 0)
+    {
+        return g_RingBuffer[position_buffer];
+    }
+    else 
+    {
+        return g_RingBuffer[RING_BUFFER_SIZE - position_buffer];
+    }
+}
+
+char get_character(uint8_t offset)
+{
+    return get_character_at_position(g_RingBufferHead - offset);
+}
+
+void write_character(char character)
+{
+    uint8_t position_buffer = g_RingBufferHead % RING_BUFFER_SIZE;
+
+    g_RingBuffer[position_buffer] = character;
+
+    g_RingBufferHead++;
+}
+
+void copy_cmd_buffer()
+{
+    uint8_t i = 0;
+    for(i = 0; i < RING_BUFFER_SIZE; i++)
+    {
+        g_CmdBuffer[i] = get_character_at_position(g_RingBufferHead - RING_BUFFER_SIZE + i);
+    }
+}
+
+void clear_buffers() 
+{
+    uint8_t i = 0;
+    for(i = 0; i < RING_BUFFER_SIZE; i++)
+    {
+        g_RingBuffer[i] = 1;
+        g_CmdBuffer[i] = 1;
+    }
+}
+
+void parse_command()
+{
+    // LED n ON/OFF
+    char* cmd_ptr = strstr(g_CmdBuffer, "led");
+    uint8_t led_idx = 0;
+    bool led_action = false;
+
+    if (cmd_ptr)
+    {
+        cmd_ptr += 3;
+
+        if (*cmd_ptr != ' ')
+        {
+            
+            return;
+        }
+        
+        cmd_ptr++;
+
+        if (isdigit(*cmd_ptr))
+        {
+            uint8_t idx = (*cmd_ptr) - '0';
+
+            if (idx > 1)
+            {
+                return;
+            }
+
+            led_idx = idx;
+        }
+
+        cmd_ptr++;
+
+        if (*cmd_ptr != ' ')
+        {
+            
+            return;
+        }
+
+        cmd_ptr++;
+
+        char action_buffer[3];
+        strncpy(action_buffer, cmd_ptr, 3);
+        if (strstr(action_buffer, "on"))
+        {
+            led_action = true;      
+        }
+        else if(strstr(action_buffer, "off"))
+        {
+            led_action = false;            
+        }
+        else
+        {
+            return;
+        }
+
+        LED_setState(led_idx, led_action);
+    }
+}
+
 //
 // Main
 //
@@ -87,12 +215,45 @@ void main(void)
     //
     EINT;
     ERTM;
+
+    clear_buffers();
+
     while(1)
     {
-        GPIO_togglePin(myBoardLED0_GPIO);
-        DEVICE_DELAY_US(1e6);
-        GPIO_togglePin(myBoardLED1_GPIO);
-        DEVICE_DELAY_US(1e6);
+        // GPIO_writePin(myBoardLED0_GPIO, 0);
+        // DEVICE_DELAY_US(1e6);
+        // GPIO_writePin(myBoardLED0_GPIO, 1);
+        // GPIO_togglePin(myBoardLED1_GPIO);
+        // DEVICE_DELAY_US(1e6);
+
+        char value = (char)SCI_readCharBlockingFIFO(mySCI0_BASE);
+
+        if (value == 8)
+        {
+            if (g_RingBufferHead > 0)
+            {
+                g_RingBufferHead--;
+            }
+            else
+            {
+                g_RingBufferHead = RING_BUFFER_SIZE - 1;
+            }
+        }
+        else if (value == 13)
+        {
+            write_character('\0');
+            
+            copy_cmd_buffer();
+
+            parse_command();
+
+            clear_buffers();
+        }
+        else 
+        {
+            write_character(tolower(value));
+        }
+
     }
 }
 //
