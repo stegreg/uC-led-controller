@@ -63,8 +63,6 @@
 char        g_RingBuffer[RING_BUFFER_SIZE];
 uint8_t     g_RingBufferHead = 0;
 
-char        g_CmdBuffer[RING_BUFFER_SIZE];
-
 bool        g_LedBlinkState[2];
 
 typedef enum
@@ -76,118 +74,13 @@ typedef enum
 
 void LED_setState(uint16_t ledIdx, LEDState state);
 
-char get_character_at_position(int8_t position)
-{
-    int8_t  position_sign   = position >= 0 ? 1 : -1;
-    uint8_t position_mod    = position_sign > 0 ? position : -position;
-    uint8_t position_buffer = position_mod % RING_BUFFER_SIZE;
+void APP_parseCommand(char* commandBuffer);
 
-    if (position_sign > 0)
-    {
-        return g_RingBuffer[position_buffer];
-    }
-    else 
-    {
-        return g_RingBuffer[RING_BUFFER_SIZE - position_buffer];
-    }
-}
-
-char get_character(uint8_t offset)
-{
-    return get_character_at_position(g_RingBufferHead - offset);
-}
-
-void write_character(char character)
-{
-    uint8_t position_buffer = g_RingBufferHead % RING_BUFFER_SIZE;
-
-    g_RingBuffer[position_buffer] = character;
-
-    g_RingBufferHead++;
-}
-
-void copy_cmd_buffer()
-{
-    uint8_t i = 0;
-    for(i = 0; i < RING_BUFFER_SIZE; i++)
-    {
-        g_CmdBuffer[i] = get_character_at_position(g_RingBufferHead - RING_BUFFER_SIZE + i);
-    }
-}
-
-void clear_buffers() 
-{
-    uint8_t i = 0;
-    for(i = 0; i < RING_BUFFER_SIZE; i++)
-    {
-        g_RingBuffer[i] = 1;
-        g_CmdBuffer[i] = 1;
-    }
-}
-
-void parse_command()
-{
-    // LED n ON/OFF/BLINK
-    char* cmd_ptr = strstr(g_CmdBuffer, "led");
-    uint8_t led_idx = 0;
-    LEDState led_action = LED_OFF;
-
-    if (cmd_ptr)
-    {
-        cmd_ptr += 3;
-
-        if (*cmd_ptr != ' ')
-        {
-            
-            return;
-        }
-        
-        cmd_ptr++;
-
-        if (isdigit(*cmd_ptr))
-        {
-            uint8_t idx = (*cmd_ptr) - '0';
-
-            if (idx > 1)
-            {
-                return;
-            }
-
-            led_idx = idx;
-        }
-
-        cmd_ptr++;
-
-        if (*cmd_ptr != ' ')
-        {
-            
-            return;
-        }
-
-        cmd_ptr++;
-
-        char action_buffer[5];
-        strncpy(action_buffer, cmd_ptr, 5);
-        if (strstr(action_buffer, "on"))
-        {
-            led_action = LED_ON;      
-        }
-        else if(strstr(action_buffer, "off"))
-        {
-            led_action = LED_OFF;            
-        }
-        else if (strstr(action_buffer, "blink"))
-        {
-            led_action = LED_BLINK;
-        }
-        else
-        {
-            return;
-        }
-
-        LED_setState(led_idx, led_action);
-    }
-}
+char CONSOLE_getCharacterAt(int8_t position);
+void CONSOLE_writeCharacter(char character);
+void CONSOLE_eraseLastCharacter();
+void CONSOLE_copyCommand(char* cmdBuffer);
+void CONSOLE_clearBuffer();
 
 //
 // Main
@@ -228,44 +121,151 @@ void main(void)
     g_LedBlinkState[0] = false;
     g_LedBlinkState[1] = false;
 
-    clear_buffers();
+    CONSOLE_clearBuffer();
 
     while(1)
     {
-        // GPIO_writePin(myBoardLED0_GPIO, 0);
-        // DEVICE_DELAY_US(1e6);
-        // GPIO_writePin(myBoardLED0_GPIO, 1);
-        // GPIO_togglePin(myBoardLED1_GPIO);
-        // DEVICE_DELAY_US(1e6);
-
         char value = (char)SCI_readCharBlockingFIFO(mySCI0_BASE);
 
         if (value == 8)
         {
-            if (g_RingBufferHead > 0)
-            {
-                g_RingBufferHead--;
-            }
-            else
-            {
-                g_RingBufferHead = RING_BUFFER_SIZE - 1;
-            }
+            CONSOLE_eraseLastCharacter();
         }
         else if (value == 13)
         {
-            write_character('\0');
+            CONSOLE_writeCharacter('\0');
             
-            copy_cmd_buffer();
+            char cmdBuffer[RING_BUFFER_SIZE];
+            CONSOLE_copyCommand(cmdBuffer);
 
-            parse_command();
+            APP_parseCommand(cmdBuffer);
 
-            clear_buffers();
+            CONSOLE_clearBuffer();
         }
         else 
         {
-            write_character(tolower(value));
+            CONSOLE_writeCharacter(tolower(value));
         }
 
+    }
+}
+
+void APP_parseCommand(char* commandBuffer)
+{
+    // Command structure: "led 0/1 on/off/blink"
+    
+    char* cmdPtr = strstr(commandBuffer, "led");
+    uint8_t ledIdx = 0;
+    LEDState ledAction = LED_OFF;
+
+    if (cmdPtr)
+    {
+        cmdPtr += 3;
+
+        if (*cmdPtr != ' ')
+        {
+            return;
+        }
+        
+        cmdPtr++;
+
+        if (isdigit(*cmdPtr))
+        {
+            uint8_t idx = (*cmdPtr) - '0';
+
+            if (idx > 1)
+            {
+                return;
+            }
+
+            ledIdx = idx;
+        }
+
+        cmdPtr++;
+
+        if (*cmdPtr != ' ')
+        {
+            
+            return;
+        }
+
+        cmdPtr++;
+
+        char actionBuffer[5];
+        strncpy(actionBuffer, cmdPtr, 5);
+        if (strstr(actionBuffer, "on"))
+        {
+            ledAction = LED_ON;      
+        }
+        else if(strstr(actionBuffer, "off"))
+        {
+            ledAction = LED_OFF;            
+        }
+        else if (strstr(actionBuffer, "blink"))
+        {
+            ledAction = LED_BLINK;
+        }
+        else
+        {
+            return;
+        }
+
+        LED_setState(ledIdx, ledAction);
+    }
+}
+
+char CONSOLE_getCharacterAt(int8_t position)
+{
+    int8_t  position_sign   = position >= 0 ? 1 : -1;
+    uint8_t position_mod    = position_sign > 0 ? position : -position;
+    uint8_t position_buffer = position_mod % RING_BUFFER_SIZE;
+
+    if (position_sign > 0)
+    {
+        return g_RingBuffer[position_buffer];
+    }
+    else 
+    {
+        return g_RingBuffer[RING_BUFFER_SIZE - position_buffer];
+    }
+}
+
+void CONSOLE_writeCharacter(char character)
+{
+    uint8_t position_buffer = g_RingBufferHead % RING_BUFFER_SIZE;
+
+    g_RingBuffer[position_buffer] = character;
+
+    g_RingBufferHead++;
+}
+
+void CONSOLE_eraseLastCharacter()
+{
+    if (g_RingBufferHead > 0)
+    {
+        g_RingBufferHead--;
+    }
+    else
+    {
+        g_RingBufferHead = RING_BUFFER_SIZE - 1;
+    }
+}
+
+void CONSOLE_copyCommand(char* cmdBuffer)
+{
+    uint8_t i = 0;
+    for(i = 0; i < RING_BUFFER_SIZE; i++)
+    {
+        cmdBuffer[i] = CONSOLE_getCharacterAt(g_RingBufferHead - RING_BUFFER_SIZE + i);
+    }
+}
+
+void CONSOLE_clearBuffer() 
+{
+    uint8_t i = 0;
+    for(i = 0; i < RING_BUFFER_SIZE; i++)
+    {
+        g_RingBuffer[i] = 1;
     }
 }
 
@@ -308,8 +308,6 @@ void LED_setState(uint16_t ledIdx, LEDState state)
     }
     }
 }
-
-
 //
 // End of File
 //
