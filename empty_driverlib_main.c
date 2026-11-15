@@ -53,6 +53,8 @@
 #include "board.h"
 #include "c2000ware_libraries.h"
 
+#include "led_hal.h"
+
 #include <string.h>
 #include <ctype.h>
 
@@ -62,14 +64,6 @@ char        g_RingBuffer[RING_BUFFER_SIZE];
 uint8_t     g_RingBufferHead = 0;
 
 char        g_CmdBuffer[RING_BUFFER_SIZE];
-
-void LED_setState(uint8_t ledIdx, bool state)
-{
-    uint32_t gpio   = ledIdx == 0 ? myBoardLED0_GPIO : myBoardLED1_GPIO;
-    uint32_t value  = state ? 0 : 1;
-    
-    GPIO_writePin(gpio, value);
-}
 
 char get_character_at_position(int8_t position)
 {
@@ -176,7 +170,7 @@ void parse_command()
             return;
         }
 
-        LED_setState(led_idx, led_action);
+        HAL_setLEDState(led_idx, led_action);
     }
 }
 
