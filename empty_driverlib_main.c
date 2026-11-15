@@ -65,6 +65,17 @@ uint8_t     g_RingBufferHead = 0;
 
 char        g_CmdBuffer[RING_BUFFER_SIZE];
 
+bool        g_LedBlinkState[2];
+
+typedef enum
+{
+    LED_OFF,
+    LED_ON,
+    LED_BLINK
+} LEDState;
+
+void LED_setState(uint16_t ledIdx, LEDState state);
+
 char get_character_at_position(int8_t position)
 {
     int8_t  position_sign   = position >= 0 ? 1 : -1;
@@ -116,10 +127,10 @@ void clear_buffers()
 
 void parse_command()
 {
-    // LED n ON/OFF
+    // LED n ON/OFF/BLINK
     char* cmd_ptr = strstr(g_CmdBuffer, "led");
     uint8_t led_idx = 0;
-    bool led_action = false;
+    LEDState led_action = LED_OFF;
 
     if (cmd_ptr)
     {
@@ -155,22 +166,26 @@ void parse_command()
 
         cmd_ptr++;
 
-        char action_buffer[3];
-        strncpy(action_buffer, cmd_ptr, 3);
+        char action_buffer[5];
+        strncpy(action_buffer, cmd_ptr, 5);
         if (strstr(action_buffer, "on"))
         {
-            led_action = true;      
+            led_action = LED_ON;      
         }
         else if(strstr(action_buffer, "off"))
         {
-            led_action = false;            
+            led_action = LED_OFF;            
+        }
+        else if (strstr(action_buffer, "blink"))
+        {
+            led_action = LED_BLINK;
         }
         else
         {
             return;
         }
 
-        HAL_setLEDState(led_idx, led_action);
+        LED_setState(led_idx, led_action);
     }
 }
 
@@ -209,6 +224,9 @@ void main(void)
     //
     EINT;
     ERTM;
+
+    g_LedBlinkState[0] = false;
+    g_LedBlinkState[1] = false;
 
     clear_buffers();
 
@@ -250,6 +268,48 @@ void main(void)
 
     }
 }
+
+__interrupt void INT_LED_BLINK_TIMER_ISR(void)
+{
+    if (g_LedBlinkState[0])
+    {
+        GPIO_togglePin(myBoardLED0_GPIO);
+    }
+
+    if (g_LedBlinkState[1])
+    {
+        GPIO_togglePin(myBoardLED1_GPIO);
+    }
+
+    Interrupt_clearACKGroup(INT_LED_BLINK_TIMER_INTERRUPT_ACK_GROUP);
+}
+
+void LED_setState(uint16_t ledIdx, LEDState state)
+{
+    switch (state) 
+    {
+    case LED_OFF:
+    case LED_ON:
+    {
+        uint32_t gpio   = ledIdx == 0 ? myBoardLED0_GPIO : myBoardLED1_GPIO;
+        uint32_t value  = state == LED_ON ? 0 : 1;
+        
+        g_LedBlinkState[ledIdx] = false;
+
+        GPIO_writePin(gpio, value);
+        
+        return;
+    }
+    case LED_BLINK:
+    {        
+        g_LedBlinkState[ledIdx] = true;
+
+        return;
+    }
+    }
+}
+
+
 //
 // End of File
 //

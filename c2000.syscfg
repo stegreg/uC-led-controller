@@ -13,11 +13,13 @@
 /**
  * Import the modules used in this configuration.
  */
-const led  = scripting.addModule("/driverlib/board_components/led", {}, false);
-const led1 = led.addInstance();
-const led2 = led.addInstance();
-const sci  = scripting.addModule("/driverlib/sci.js", {}, false);
-const sci1 = sci.addInstance();
+const led       = scripting.addModule("/driverlib/board_components/led", {}, false);
+const led1      = led.addInstance();
+const led2      = led.addInstance();
+const cputimer  = scripting.addModule("/driverlib/cputimer.js", {}, false);
+const cputimer1 = cputimer.addInstance();
+const sci       = scripting.addModule("/driverlib/sci.js", {}, false);
+const sci1      = sci.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -27,6 +29,13 @@ led1.$hardware = system.deviceData.board.components.LED4;
 
 led2.$name     = "myBoardLED1";
 led2.$hardware = system.deviceData.board.components.LED5;
+
+cputimer1.enableInterrupt          = true;
+cputimer1.registerInterrupts       = true;
+cputimer1.startTimer               = true;
+cputimer1.$name                    = "LED_BLINK_TIMER";
+cputimer1.timerPeriod              = 200000000;
+cputimer1.timerInt.enableInterrupt = true;
 
 sci1.$name         = "mySCI0";
 sci1.$hardware     = system.deviceData.board.components.XDS_UART.subComponents.XDS_SCI_INST1;
